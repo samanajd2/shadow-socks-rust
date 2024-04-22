@@ -56,7 +56,7 @@ strip = true
 
 [features]
 default = [
-    "logging",
+    "winservice",
     "hickory-dns",
     "local",
     "server",
@@ -68,6 +68,9 @@ default = [
     "local-socks4",
     "multi-threaded",
     "aead-cipher-2022",
+    "stream-cipher",
+    "replay-attack-detect",
+    "security-replay-attack-detect",    
 ]
 
 # Enable local server
