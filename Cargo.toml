@@ -57,7 +57,11 @@ strip = true
 [features]
 default = [
     "winservice",
+    "logging",
     "hickory-dns",
+    "dns-over-tls",
+    "dns-over-https",
+	"dns-over-h3",
     "local",
     "server",
     "manager",
@@ -65,9 +69,8 @@ default = [
     "service",
     "local-http",
     "local-tunnel",
-    "local-socks4",
-    "multi-threaded",
-    "aead-cipher-2022",
+    "local-tun",
+    "local-fake-dns",
     "stream-cipher",
     "replay-attack-detect",
     "security-replay-attack-detect",    
