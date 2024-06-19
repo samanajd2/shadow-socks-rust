@@ -18,7 +18,7 @@ use byte_string::ByteStr;
 use futures::future;
 use log::{debug, error, info, trace, warn};
 use shadowsocks::{
-    config::Mode,
+    config::{Mode, ServerSource},
     plugin::{Plugin, PluginMode},
     relay::{
         socks5::Address,
@@ -721,10 +721,35 @@ impl PingBalancer {
     }
 
     /// Reset servers in load balancer. Designed for auto-reloading configuration file.
-    pub async fn reset_servers(&self, servers: Vec<ServerInstanceConfig>) -> io::Result<()> {
+    pub async fn reset_servers(
+        &self,
+        servers: Vec<ServerInstanceConfig>,
+        replace_server_sources: &[ServerSource],
+    ) -> io::Result<()> {
         let old_context = self.inner.context.load();
 
-        let servers = servers
+        let mut old_servers = old_context.servers.clone();
+        let mut idx = 0;
+        while idx < old_servers.len() {
+            let source_match = replace_server_sources
+                .iter()
+                .any(|src| *src == old_servers[idx].server_config().source());
+            if source_match {
+                old_servers.swap_remove(idx);
+            } else {
+                idx += 1;
+            }
+        }
+
+        trace!(
+            "ping balancer going to replace {} servers (total: {}) with {} servers, sources: {:?}",
+            old_context.servers.len() - old_servers.len(),
+            old_context.servers.len(),
+            servers.len(),
+            replace_server_sources
+        );
+
+        let mut servers = servers
             .into_iter()
             .map(|s| {
                 Arc::new(ServerIdent::new(
@@ -735,6 +760,18 @@ impl PingBalancer {
                 ))
             })
             .collect::<Vec<Arc<ServerIdent>>>();
+
+        // Recreate a new instance for old servers (old server instance may still being held by clients)
+        for old_server in old_servers {
+            servers.push(Arc::new(ServerIdent::new(
+                old_context.context.clone(),
+                old_server.server_instance_config().clone(),
+                old_context.max_server_rtt,
+                old_context.check_interval * EXPECTED_CHECK_POINTS_IN_CHECK_WINDOW,
+            )));
+        }
+
+        trace!("ping balancer merged {} new servers", servers.len());
 
         let (shared_context, task_abortable) = PingBalancerContext::new(
             servers,

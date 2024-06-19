@@ -70,13 +70,7 @@ use serde::{Deserialize, Serialize};
 use shadowsocks::relay::socks5::Address;
 use shadowsocks::{
     config::{
-        ManagerAddr,
-        Mode,
-        ReplayAttackPolicy,
-        ServerAddr,
-        ServerConfig,
-        ServerUser,
-        ServerUserManager,
+        ManagerAddr, Mode, ReplayAttackPolicy, ServerAddr, ServerConfig, ServerSource, ServerUser, ServerUserManager,
         ServerWeight,
     },
     crypto::CipherKind,
@@ -229,6 +223,14 @@ struct SSConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     acl: Option<String>,
+
+    #[cfg(feature = "local-online-config")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<u32>,
+
+    #[cfg(feature = "local-online-config")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    online_config: Option<SSOnlineConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -401,6 +403,13 @@ struct SSServerExtConfig {
     outbound_bind_interface: Option<String>,
 }
 
+#[cfg(feature = "local-online-config")]
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct SSOnlineConfig {
+    config_url: String,
+    update_interval: Option<u64>,
+}
+
 /// Server config type
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigType {
@@ -412,6 +421,11 @@ pub enum ConfigType {
 
     /// Config for Manager server
     Manager,
+
+    /// Config for online config (SIP008)
+    /// https://shadowsocks.org/doc/sip008.html
+    #[cfg(feature = "local-online-config")]
+    OnlineConfig,
 }
 
 impl ConfigType {
@@ -428,6 +442,12 @@ impl ConfigType {
     /// Check if it is manager server type
     pub fn is_manager(self) -> bool {
         self == ConfigType::Manager
+    }
+
+    /// Chec if it is online config type (SIP008)
+    #[cfg(feature = "local-online-config")]
+    pub fn is_online_config(self) -> bool {
+        self == ConfigType::OnlineConfig
     }
 }
 
@@ -1221,6 +1241,17 @@ impl LocalInstanceConfig {
     }
 }
 
+/// OnlineConfiguration (SIP008)
+/// https://shadowsocks.org/doc/sip008.html
+#[cfg(feature = "local-online-config")]
+#[derive(Debug, Clone)]
+pub struct OnlineConfig {
+    /// SIP008 URL
+    pub config_url: String,
+    /// Update interval, 3600s by default
+    pub update_interval: Option<Duration>,
+}
+
 /// Configuration
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -1321,10 +1352,10 @@ pub struct Config {
     /// This is normally for auto-reloading if implementation supports.
     pub config_path: Option<PathBuf>,
 
-    #[doc(hidden)]
-    /// Workers in runtime
-    /// It should be replaced with metrics APIs: https://github.com/tokio-rs/tokio/issues/4073
-    pub worker_count: usize,
+    /// OnlineConfiguration (SIP008)
+    /// https://shadowsocks.org/doc/sip008.html
+    #[cfg(feature = "local-online-config")]
+    pub online_config: Option<OnlineConfig>,
 }
 
 /// Configuration parsing error kind
@@ -1352,6 +1383,12 @@ pub struct Error {
 impl Error {
     pub fn new(kind: ErrorKind, desc: &'static str, detail: Option<String>) -> Error {
         Error { kind, desc, detail }
+    }
+}
+
+impl std::error::Error for Error {
+    fn description(&self) -> &str {
+        self.desc
     }
 }
 
@@ -1439,7 +1476,8 @@ impl Config {
 
             config_path: None,
 
-            worker_count: 1,
+            #[cfg(feature = "local-online-config")]
+            online_config: None,
         }
     }
 
@@ -1798,7 +1836,32 @@ impl Config {
                 //
                 // This behavior causes lots of confusion. use outbound_bind_addr instead
             }
+            #[cfg(feature = "local-online-config")]
+            ConfigType::OnlineConfig => {
+                // SIP008. https://shadowsocks.org/doc/sip008.html
+                // "version" should be set to "1"
+                match config.version {
+                    Some(1) => {}
+                    Some(v) => {
+                        let err = Error::new(
+                            ErrorKind::Invalid,
+                            "invalid online config version",
+                            Some(format!("version: {v}")),
+                        );
+                        return Err(err);
+                    }
+                    None => {
+                        warn!("OnlineConfig \"version\" is missing in the configuration, assuming it is a compatible version for this project");
+                    }
+                }
+            }
         }
+
+        let server_source = match config_type {
+            ConfigType::Local | ConfigType::Server | ConfigType::Manager => ServerSource::Configuration,
+            #[cfg(feature = "local-online-config")]
+            ConfigType::OnlineConfig => ServerSource::OnlineConfig,
+        };
 
         // Standard config
         // Server
@@ -1842,6 +1905,7 @@ impl Config {
                 };
 
                 let mut nsvr = ServerConfig::new(addr, password, method);
+                nsvr.set_source(server_source);
                 nsvr.set_mode(global_mode);
 
                 if let Some(ref p) = config.plugin {
@@ -1961,6 +2025,7 @@ impl Config {
                 };
 
                 let mut nsvr = ServerConfig::new(addr, password, method);
+                nsvr.set_source(server_source);
 
                 // Extensible Identity Header, Users
                 if let Some(users) = svr.users {
@@ -2309,6 +2374,14 @@ impl Config {
             nconfig.acl = Some(acl);
         }
 
+        #[cfg(feature = "local-online-config")]
+        if let Some(online_config) = config.online_config {
+            nconfig.online_config = Some(OnlineConfig {
+                config_url: online_config.config_url,
+                update_interval: online_config.update_interval.map(Duration::from_secs),
+            });
+        }
+
         Ok(nconfig)
     }
 
@@ -2520,6 +2593,16 @@ impl Config {
             return Err(err);
         }
 
+        #[cfg(feature = "local-online-config")]
+        if self.config_type.is_online_config() && self.server.is_empty() {
+            let err = Error::new(
+                ErrorKind::MissingField,
+                "missing any valid servers in configuration",
+                None,
+            );
+            return Err(err);
+        }
+
         if self.config_type.is_manager() && self.manager.is_none() {
             let err = Error::new(
                 ErrorKind::MissingField,
@@ -2560,6 +2643,20 @@ impl Config {
                             return Err(err);
                         }
                     }
+
+                    #[cfg(feature = "local-online-config")]
+                    if self.config_type.is_online_config() {
+                        // Only server could bind to INADDR_ANY
+                        let ip = sa.ip();
+                        if ip.is_unspecified() {
+                            let err = Error::new(
+                                ErrorKind::Malformed,
+                                "`server` shouldn't be an unspecified address (INADDR_ANY)",
+                                None,
+                            );
+                            return Err(err);
+                        }
+                    }
                 }
                 ServerAddr::DomainName(dn, port) => {
                     if dn.is_empty() || *port == 0 {
@@ -2575,6 +2672,19 @@ impl Config {
 
             // Users' key must match key length
             if let Some(user_manager) = server.user_manager() {
+                #[cfg(feature = "aead-cipher-2022")]
+                if server.method().is_aead_2022() {
+                    use shadowsocks::config::method_support_eih;
+                    if user_manager.user_count() > 0 && !method_support_eih(server.method()) {
+                        let err = Error::new(
+                            ErrorKind::Invalid,
+                            "server method doesn't support Extended Identity Header (EIH), remove `users`",
+                            Some(format!("method {}", server.method())),
+                        );
+                        return Err(err);
+                    }
+                }
+
                 let key_len = server.method().key_len();
                 for user in user_manager.users_iter() {
                     if user.key().len() != key_len {
@@ -3008,6 +3118,15 @@ impl fmt::Display for Config {
         // ACL
         if let Some(ref acl) = self.acl {
             jconf.acl = Some(acl.file_path().to_str().unwrap().to_owned());
+        }
+
+        // OnlineConfig
+        #[cfg(feature = "local-online-config")]
+        if let Some(ref online_config) = self.online_config {
+            jconf.online_config = Some(SSOnlineConfig {
+                config_url: online_config.config_url.clone(),
+                update_interval: online_config.update_interval.as_ref().map(Duration::as_secs),
+            });
         }
 
         write!(f, "{}", json5::to_string(&jconf).unwrap())

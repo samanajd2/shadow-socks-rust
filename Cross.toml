@@ -1,9 +1,13 @@
+[build]
+dockerfile = "./docker/linux-cross/Dockerfile"
+pre-build = [
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable",
+    ". $HOME/.cargo/env",
+    "cargo install --force --locked bindgen-cli && mv $HOME/.cargo/bin/bindgen /usr/bin",
+    "rm -rf $HOME/.cargo"
+]
+
+
 [build.env]
 passthrough = ["RUSTFLAGS"]
 
-[target.x86_64-pc-windows-gnu]
-pre-build = [
-    # Install NVIM for rustls, which deps on aws-lc-rs by default, and it needs NASM
-    "apt-get update",
-    "apt-get install --assume-yes nasm",
-]
