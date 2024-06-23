@@ -61,7 +61,7 @@ default = [
     "hickory-dns",
     "dns-over-tls",
     "dns-over-https",
-	"dns-over-h3",
+    "dns-over-h3",
     "local",
     "server",
     "manager",
