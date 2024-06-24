@@ -57,13 +57,10 @@ strip = true
 [features]
 default = [
     "winservice",
-    "logging",
     "hickory-dns",
     "dns-over-tls",
     "dns-over-https",
     "local",
-    "server",
-    "manager",
     "utility",
     "service",
     "local-http",
