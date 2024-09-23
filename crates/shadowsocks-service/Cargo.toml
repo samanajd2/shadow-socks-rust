@@ -25,6 +25,7 @@ full = [
     "local-tunnel",
     "local-socks4",
     "stream-cipher",
+    "replay-attack-detect",
     "security-replay-attack-detect",
 ]
 
