@@ -24,6 +24,8 @@ full = [
     "local-redir",
     "local-tunnel",
     "local-socks4",
+    "stream-cipher",
+    "security-replay-attack-detect",
 ]
 
 # Enable local server
@@ -131,7 +133,7 @@ log = "0.4"
 
 cfg-if = "1"
 pin-project = "1.1"
-once_cell = "1.17"
+once_cell = "1.19"
 thiserror = "1.0"
 arc-swap = "1.7"
 
@@ -144,7 +146,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 sled = { version = "0.34.7", optional = true }
 
 futures = "0.3"
-tokio = { version = "1.38", features = [
+tokio = { version = "1.40", features = [
     "io-util",
     "macros",
     "net",
@@ -154,7 +156,7 @@ tokio = { version = "1.38", features = [
     "time",
 ] }
 tokio-native-tls = { version = "0.3", optional = true }
-native-tls = { version = "0.2.8", optional = true, features = ["alpn"] }
+native-tls = { version = "0.2.12", optional = true, features = ["alpn"] }
 webpki-roots = { version = "0.26", optional = true }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = [
     "logging",
