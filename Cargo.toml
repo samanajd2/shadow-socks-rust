@@ -58,9 +58,10 @@ strip = true
 default = [
     "logging",
     "hickory-dns",
+    "dns-over-tls",
+    "dns-over-https",
     "local",
-    "server",
-    "manager",
+    "local-dns",
     "utility",
     "service",
     "local-http",
