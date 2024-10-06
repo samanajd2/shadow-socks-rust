@@ -65,9 +65,10 @@ default = [
     "service",
     "local-http",
     "local-tunnel",
-    "local-socks4",
+    "local-tun",
     "multi-threaded",
-    "aead-cipher-2022",
+    "stream-cipher",
+    "security-replay-attack-detect",
 ]
 
 # Basic Features
